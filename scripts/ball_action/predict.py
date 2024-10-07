@@ -56,16 +56,10 @@ def get_raw_predictions(predictor: MultiDimStackerPredictor,
 
 
 def predict_video(predictor: MultiDimStackerPredictor,
-                  half: int,
-                  game_dir: Path,
-                  game_prediction_dir: Path,
+                  video_path: Path,
+                  prediction_dir: Path,
                   use_saved_predictions: bool) -> dict[str, tuple]:
-    video_path = game_dir / f"{RESOLUTION}.{constants.videos_extension}" #f"{half}_{RESOLUTION}.mkv"
-    video_info = get_video_info(video_path)
-    print("Video info:", video_info)
-    assert video_info["fps"] == constants.video_fps
-
-    raw_predictions_path = game_prediction_dir / f"{half}_raw_predictions.npz"
+    raw_predictions_path = prediction_dir / "raw_predictions.npz"
 
     if use_saved_predictions:
         with np.load(str(raw_predictions_path)) as raw_predictions:
@@ -73,6 +67,7 @@ def predict_video(predictor: MultiDimStackerPredictor,
             raw_predictions = raw_predictions["raw_predictions"]
     else:
         print("Predict video:", video_path)
+        video_info = get_video_info(video_path)
         frame_indexes, raw_predictions = get_raw_predictions(
             predictor, video_path, video_info["frame_count"]
         )
@@ -132,18 +127,24 @@ def predict_fold(experiment: str, fold, gpu_id: int,
         predict_game(predictor, game, prediction_dir, use_saved_predictions)
 
 
+def predict_custom_video(experiment: str, gpu_id: int, use_saved_predictions: bool):
+    print(f"Predict custom video: {experiment=}, {gpu_id=}")
+    experiment_dir = constants.experiments_dir / experiment / "fold_train"
+    model_path = get_best_model_path(experiment_dir)
+    print("Model path:", model_path)
+    predictor = MultiDimStackerPredictor(model_path, device=f"cuda:{gpu_id}", tta=TTA)
+    
+    video_path = Path("/custom_data/your_video.mp4")
+    prediction_dir = constants.predictions_dir / experiment / "custom"
+    if not prediction_dir.exists():
+        prediction_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        print(f"Folder {prediction_dir} already exists.")
+    
+    class_actions = predict_video(predictor, video_path, prediction_dir, use_saved_predictions)
+    prepare_game_spotting_results({"1": class_actions}, "custom_video", prediction_dir)
+
+
 if __name__ == "__main__":
     args = parse_arguments()
-
-    if args.folds == "train":
-        predict_fold(args.experiment, "train", args.gpu_id,
-                     args.challenge, args.use_saved_predictions)
-    else:
-        if args.folds == "all":
-            folds = constants.folds
-        else:
-            folds = [int(fold) for fold in args.folds.split(",")]
-
-        for fold in folds:
-            predict_fold(args.experiment, fold, args.gpu_id,
-                         args.challenge, args.use_saved_predictions)
+    predict_custom_video(args.experiment, args.gpu_id, args.use_saved_predictions)
